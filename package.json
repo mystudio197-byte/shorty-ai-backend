@@ -1,0 +1,8 @@
+{
+  "name": "shorty-ai-authorized-download-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Restricted backend for authorized HTTPS MP4 downloads",
+  "scripts": {"start": "node server.js", "test": "node --test"},
+  "engines": {"node": ">=20"}
+}

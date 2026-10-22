@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: shorty-ai-download-api
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ALLOWED_ORIGIN
+        value: https://mystudio197-byte.github.io
+      - key: MP4_ALLOWED_HOSTS
+        sync: false
+      - key: MAX_VIDEO_MB
+        value: '100'
