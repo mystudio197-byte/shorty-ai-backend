@@ -3,6 +3,7 @@ const http = require('node:http');
 const https = require('node:https');
 const dns = require('node:dns');
 const net = require('node:net');
+const facebook = require('./facebook').createFacebook();
 
 const PORT = Number(process.env.PORT || 3000);
 const MAX_BYTES = Math.min(Number(process.env.MAX_VIDEO_MB || 100), 500) * 1024 * 1024;
@@ -53,7 +54,7 @@ function publicLookup(hostname, opts, cb) {
     cb(null, chosen.address, chosen.family);
   });
 }
-function upstream(url, redirects = 0) {
+function upstream(url, redirects = 0, validator = validateUrl) {
   return new Promise((resolve, reject) => {
     const req = https.get(url, {
       lookup: publicLookup, timeout: 15000,
@@ -64,7 +65,7 @@ function upstream(url, redirects = 0) {
       if ([301,302,303,307,308].includes(status)) {
         response.resume();
         if (redirects >= MAX_REDIRECTS || !response.headers.location) return reject(new Error('Too many or invalid redirects'));
-        try { return resolve(upstream(validateUrl(new URL(response.headers.location, url).href), redirects + 1)); }
+        try { return resolve(upstream(validator(new URL(response.headers.location, url).href), redirects + 1, validator)); }
         catch(e) { return reject(e); }
       }
       if (status !== 200) { response.resume(); return reject(new Error('Video host returned HTTP ' + status)); }
@@ -93,11 +94,15 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
   if (req.method !== 'GET') return json(res, 405, { error: 'Method not allowed' });
   const path = new URL(req.url, 'http://localhost');
   if (path.pathname === '/health') return json(res, 200, { ok: true, configuredHosts: ALLOWED_HOSTS.size });
+  if (path.pathname.startsWith('/api/facebook/') || path.pathname.startsWith('/auth/facebook')) {
+    if (!rateLimit(req.socket.remoteAddress || 'unknown')) return json(res,429,{error:'Too many requests. Try later.'});
+    if (await facebook.route(req,res,path,{upstream,maxBytes:MAX_BYTES})) return;
+  }
   if (path.pathname !== '/api/download') return json(res, 404, { error: 'Not found' });
   if (req.headers.origin && req.headers.origin !== ALLOWED_ORIGIN) return json(res, 403, { error: 'Origin not allowed' });
   if (!rateLimit(req.socket.remoteAddress || 'unknown')) return json(res, 429, { error: 'Too many requests. Try later.' });
