@@ -61,7 +61,17 @@ function createFacebook({ env = process.env, fetcher = fetch, now = Date.now } =
           if (url.searchParams.has('error') || !url.searchParams.get('code')) { reply(res,400,{error:'Facebook authorization was cancelled.'});return true; }
           const r = await fetcher(`https://graph.facebook.com/${version}/oauth/access_token`,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({client_id:env.FACEBOOK_APP_ID,client_secret:env.FACEBOOK_APP_SECRET,redirect_uri:callback,code:url.searchParams.get('code')}),redirect:'error',signal:AbortSignal.timeout(15000)});
           const result = await r.json();
-          if (!r.ok || !result.access_token) throw new Error('Facebook authorization failed. Please try connecting again.');
+          if (!r.ok || !result.access_token) {
+            // Return only fixed guidance and numeric diagnostic codes; never echo
+            // provider messages, request URLs, codes, secrets or token payloads.
+            const code = Number.isInteger(result.error?.code) ? result.error.code : null;
+            const subcode = Number.isInteger(result.error?.error_subcode) ? result.error.error_subcode : null;
+            const detail = code === null ? '' : ` (Meta code ${code}${subcode === null ? '' : `, subcode ${subcode}`})`;
+            const guidance = /client.?secret/i.test(String(result.error?.message || ''))
+              ? ' Verify the Meta App Secret in the staging backend.'
+              : ' Reconnect Facebook and verify the app credentials and callback configuration.';
+            throw new Error(`Facebook authorization failed${detail}.${guidance}`);
+          }
           const granted = await graph('me/permissions',result.access_token);
           const permissions = new Set((granted.data || []).filter(p=>p.status==='granted').map(p=>p.permission));
           if (!permissions.has('pages_show_list') || !permissions.has('pages_read_engagement')) throw new Error('Please authorize both Page listing and Page content access.');
