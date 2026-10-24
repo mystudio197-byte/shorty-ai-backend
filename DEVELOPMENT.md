@@ -44,3 +44,14 @@ Use `pages_show_list` and `pages_read_engagement`. The Meta app is unpublished; 
 3. Approve and publish the frontend, then connect Facebook and import an owned Page video end to end.
 4. Verify disconnect, denied permissions, expired sessions, and local trim/export.
 5. Keep the backups for rollback. Do not change plans or add paid resources.
+
+
+## Checkpoint — 2026-10-24: token-exchange transport fix prepared
+
+Verified staging is live at `93691f2`; production and `main` were not modified. The Meta developer dashboard for App ID `1397630030096694` is named Shorty AI Downloader. Its staging redirect is registered and the Meta URI validator accepts `https://shorty-ai-staging-api.onrender.com/auth/facebook/callback`. Live authorization requests use that App ID, callback, `v26.0`, and only `pages_show_list,pages_read_engagement`. The app remains unpublished.
+
+Fresh OAuth returned Meta code 1 with client-secret-related guidance before permissions could be checked. This does not establish a secret mismatch. No real credentials were revealed, copied, logged, or changed. Current Meta manual-login documentation specifies GET for code exchange; this checkpoint changes the server's form POST to a server-only GET. Sensitive exchange URLs are never logged or returned, and provider errors remain sanitized.
+
+Validation: all 13 mocked backend tests pass, including new GET-contract/callback matching and provider-error redaction tests. These are local tests, not successful live Facebook authorization. This fix is not yet pushed or deployed: GitHub writes require authentication. Existing draft PR: https://github.com/mystudio197-byte/shorty-ai-backend/pull/1 . Its earlier status text is stale and must be updated after publishing this checkpoint.
+
+Next: publish development changes, update draft PR, deploy only the exact reviewed staging commit, verify health and retry OAuth. If code 1 persists, require the owner to compare secrets privately; do not guess or reset Meta credentials. Page content tests require explicit approved Page and test-video identities, still unavailable. No paid resources, production configuration, main merges or Facebook publications are authorized.

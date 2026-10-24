@@ -59,7 +59,11 @@ function createFacebook({ env = process.env, fetcher = fetch, now = Date.now } =
           res.setHeader('Set-Cookie','shorty_oauth=; HttpOnly; SameSite=Lax; Path=/auth/facebook; Max-Age=0');
           if (!state || cookie !== state || !saved || saved.expires <= now()) { reply(res,400,{error:'Login expired or state did not match. Please reconnect from Shorty.'}); return true; }
           if (url.searchParams.has('error') || !url.searchParams.get('code')) { reply(res,400,{error:'Facebook authorization was cancelled.'});return true; }
-          const r = await fetcher(`https://graph.facebook.com/${version}/oauth/access_token`,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({client_id:env.FACEBOOK_APP_ID,client_secret:env.FACEBOOK_APP_SECRET,redirect_uri:callback,code:url.searchParams.get('code')}),redirect:'error',signal:AbortSignal.timeout(15000)});
+          // Meta's manual-login token exchange uses GET. This server-only URL
+          // contains credentials: never log it or return provider payloads.
+          const exchange = new URL(`https://graph.facebook.com/${version}/oauth/access_token`);
+          exchange.search = new URLSearchParams({client_id:env.FACEBOOK_APP_ID,client_secret:env.FACEBOOK_APP_SECRET,redirect_uri:callback,code:url.searchParams.get('code')}).toString();
+          const r = await fetcher(exchange,{method:'GET',redirect:'error',signal:AbortSignal.timeout(15000)});
           const result = await r.json();
           if (!r.ok || !result.access_token) {
             // Return only fixed guidance and numeric diagnostic codes; never echo

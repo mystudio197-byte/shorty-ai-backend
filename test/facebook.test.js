@@ -2,12 +2,15 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const http=require('node:http');const {Readable}=require('node:stream');
 const {createFacebook}=require('../facebook');
 const origin='https://mystudio197-byte.github.io';
-async function fixture(t,{configured=true,owner='123',source='https://video.xx.fbcdn.net/video.mp4',expires=3600,contentPermission='granted'}={}){
+async function fixture(t,{configured=true,owner='123',source='https://video.xx.fbcdn.net/video.mp4',expires=3600,contentPermission='granted',tokenError=null}={}){
  let clock=Date.now();const calls=[];let streamed=false;
  const env={ALLOWED_ORIGIN:origin,FACEBOOK_REDIRECT_URI:'https://backend.example/auth/facebook/callback',FACEBOOK_APP_ID:'fixture-app',FACEBOOK_APP_SECRET:configured?'fixture-secret':''};
  const api=createFacebook({env,now:()=>clock,fetcher:async(raw,options)=>{
   const u=new URL(raw);calls.push({u,options});let data;
-  if(u.pathname.endsWith('/oauth/access_token'))data={access_token:'fixture-user-token',expires_in:expires};
+  if(u.pathname.endsWith('/oauth/access_token')){
+   if(tokenError)return {ok:false,json:async()=>({error:tokenError})};
+   data={access_token:'fixture-user-token',expires_in:expires};
+  }
   else if(u.pathname.endsWith('/me/permissions'))data={data:[{permission:'pages_show_list',status:'granted'},{permission:'pages_read_engagement',status:contentPermission}]};
   else if(u.pathname.endsWith('/me/accounts'))data={data:[{id:'123',name:'My Page',access_token:'fixture-page-token'}]};
   else if(u.pathname.endsWith('/123/videos'))data={data:[{id:'456',title:'My video'}],paging:{next:'should-never-be-returned-token-link',cursors:{after:'cursor123'}}};
@@ -54,4 +57,24 @@ test('valid session cannot read Page data from an untrusted origin',async t=>{
  const f=await fixture(t);const session=await f.login();const count=f.calls.length;
  const r=await fetch(f.base+'/api/facebook/pages',{headers:{Origin:'https://untrusted.example',Authorization:'Bearer '+session}});
  assert.equal(r.status,403);assert.equal(f.calls.length,count);
+});
+test('token exchange follows Meta GET contract with identical callback',async t=>{
+ const f=await fixture(t);await f.login();
+ const call=f.calls.find(c=>c.u.pathname.endsWith('/oauth/access_token'));
+ assert.equal(call.options.method,'GET');assert.equal(call.options.body,undefined);
+ assert.equal(call.options.redirect,'error');
+ assert.equal(call.u.searchParams.get('client_id'),'fixture-app');
+ assert.equal(call.u.searchParams.get('client_secret'),'fixture-secret');
+ assert.equal(call.u.searchParams.get('redirect_uri'),'https://backend.example/auth/facebook/callback');
+ assert.equal(call.u.searchParams.get('code'),'fixture-code');
+});
+test('token rejection exposes only fixed guidance and numeric codes',async t=>{
+ const f=await fixture(t,{tokenError:{code:1,error_subcode:123,message:'Invalid client_secret fixture-secret fixture-user-token https://private.example/?code=fixture-code'}});
+ const start=await f.request('/auth/facebook/start');
+ const state=new URL(start.headers.get('location')).searchParams.get('state');
+ const cookie=start.headers.get('set-cookie').split(';')[0];
+ const r=await fetch(f.base+'/auth/facebook/callback?code=fixture-code&state='+state,{headers:{cookie}});
+ assert.equal(r.status,422);const body=await r.text();
+ assert.match(body,/Meta code 1, subcode 123/);assert.match(body,/Verify the Meta App Secret/);
+ for(const value of ['fixture-secret','fixture-user-token','fixture-code','private.example','postMessage'])assert.ok(!body.includes(value));
 });
